@@ -67,6 +67,12 @@ namespace Emby.Server.Implementations.Library.Resolvers.Audio
                 return null;
             }
 
+            // Albums come from the tags of the files, see TagAlbumResolver.
+            if (args.LibraryOptions.EnableTagBasedAlbumGrouping)
+            {
+                return null;
+            }
+
             // Avoid mis-identifying top folders
             if (args.HasParent<MusicAlbum>())
             {

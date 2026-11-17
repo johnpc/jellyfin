@@ -58,7 +58,7 @@ public class AudioResolverTests
             IsDirectory = name.EndsWith('/')
         }).ToArray();
 
-        var resolver = new AudioResolver(_namingOptions);
+        var resolver = new AudioResolver(_namingOptions, Mock.Of<ILibraryManager>(), Mock.Of<IAudioTagReader>());
         var itemResolveArgs = new ItemResolveArgs(
             null,
             Mock.Of<ILibraryManager>())

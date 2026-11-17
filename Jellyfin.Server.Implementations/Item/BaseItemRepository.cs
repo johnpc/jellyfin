@@ -225,7 +225,8 @@ public sealed partial class BaseItemRepository
             || query.IncludeItemTypes.Contains(BaseItemKind.Movie)
             || query.IncludeItemTypes.Contains(BaseItemKind.MusicVideo)
             || query.IncludeItemTypes.Contains(BaseItemKind.Series)
-            || query.IncludeItemTypes.Contains(BaseItemKind.Season);
+            || query.IncludeItemTypes.Contains(BaseItemKind.Season)
+            || query.IncludeItemTypes.Contains(BaseItemKind.MusicAlbum);
     }
 
     private static BaseItemImageInfo Map(Guid baseItemId, ItemImageInfo e)

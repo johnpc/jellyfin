@@ -100,6 +100,7 @@ using MediaBrowser.Providers.Books.ComicBookInfo;
 using MediaBrowser.Providers.Books.ComicInfo;
 using MediaBrowser.Providers.Lyric;
 using MediaBrowser.Providers.Manager;
+using MediaBrowser.Providers.MediaInfo;
 using MediaBrowser.Providers.Plugins.ListenBrainz;
 using MediaBrowser.Providers.Plugins.ListenBrainz.Api;
 using MediaBrowser.Providers.Plugins.Tmdb;
@@ -598,6 +599,7 @@ namespace Emby.Server.Implementations
 
             serviceCollection.AddSingleton<ISubtitleManager, SubtitleManager>();
             serviceCollection.AddSingleton<ILyricManager, LyricManager>();
+            serviceCollection.AddSingleton<IAudioTagReader, AudioTagReader>();
 
             serviceCollection.AddSingleton<IProviderManager, ProviderManager>();
 

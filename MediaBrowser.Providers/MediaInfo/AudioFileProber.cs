@@ -30,8 +30,6 @@ namespace MediaBrowser.Providers.MediaInfo
     /// </summary>
     public class AudioFileProber
     {
-        private const char InternalValueSeparator = '\u001F';
-
         private readonly IMediaEncoder _mediaEncoder;
         private readonly ILibraryManager _libraryManager;
         private readonly ILogger<AudioFileProber> _logger;
@@ -70,9 +68,7 @@ namespace MediaBrowser.Providers.MediaInfo
             _lyricManager = lyricManager;
             _mediaStreamRepository = mediaStreamRepository;
             _chapterManager = chapterManager;
-            ATL.Settings.DisplayValueSeparator = InternalValueSeparator;
-            ATL.Settings.UseFileNameWhenNoTitle = false;
-            ATL.Settings.ID3v2_separatev2v3Values = false;
+            AudioTagReader.ConfigureAtl();
         }
 
         /// <summary>
@@ -203,45 +199,8 @@ namespace MediaBrowser.Providers.MediaInfo
             if (audio.SupportsPeople && !audio.LockedFields.Contains(MetadataField.Cast))
             {
                 var people = new List<PersonInfo>();
-                string[]? albumArtists = null;
-                if (libraryOptions.PreferNonstandardArtistsTag)
-                {
-                    TryGetSanitizedAdditionalFields(track, "ALBUMARTISTS", out var albumArtistsTagString);
-                    if (albumArtistsTagString is not null)
-                    {
-                        albumArtists = albumArtistsTagString.Split(InternalValueSeparator);
-                    }
-                }
-
-                if (albumArtists is null || albumArtists.Length == 0)
-                {
-                    albumArtists = string.IsNullOrEmpty(trackAlbumArtist) ? [] : trackAlbumArtist.Split(InternalValueSeparator);
-                }
-
-                if (libraryOptions.UseCustomTagDelimiters)
-                {
-                    albumArtists = albumArtists.SelectMany(a => SplitWithCustomDelimiter(a, libraryOptions.GetCustomTagDelimiters(), libraryOptions.DelimiterWhitelist)).ToArray();
-                }
-
-                string[]? performers = null;
-                if (libraryOptions.PreferNonstandardArtistsTag)
-                {
-                    TryGetSanitizedAdditionalFields(track, "ARTISTS", out var artistsTagString);
-                    if (artistsTagString is not null)
-                    {
-                        performers = artistsTagString.Split(InternalValueSeparator);
-                    }
-                }
-
-                if (performers is null || performers.Length == 0)
-                {
-                    performers = string.IsNullOrEmpty(trackArist) ? [] : trackArist.Split(InternalValueSeparator);
-                }
-
-                if (libraryOptions.UseCustomTagDelimiters)
-                {
-                    performers = performers.SelectMany(p => SplitWithCustomDelimiter(p, libraryOptions.GetCustomTagDelimiters(), libraryOptions.DelimiterWhitelist)).ToArray();
-                }
+                var albumArtists = AudioTagReader.GetArtistValues(track, "ALBUMARTISTS", trackAlbumArtist, libraryOptions);
+                var performers = AudioTagReader.GetArtistValues(track, "ARTISTS", trackArist, libraryOptions);
 
                 var isAudioBook = audio is AudioBook;
 
@@ -269,7 +228,7 @@ namespace MediaBrowser.Providers.MediaInfo
                     // Composer tag = Narrator (Audiobookshelf and other tools use Composer for narrator)
                     if (!string.IsNullOrWhiteSpace(trackComposer))
                     {
-                        foreach (var composer in trackComposer.Split(InternalValueSeparator))
+                        foreach (var composer in trackComposer.Split(AudioTagReader.InternalValueSeparator))
                         {
                             if (!string.IsNullOrWhiteSpace(composer))
                             {
@@ -324,7 +283,7 @@ namespace MediaBrowser.Providers.MediaInfo
 
                     if (!string.IsNullOrWhiteSpace(trackComposer))
                     {
-                        foreach (var composer in trackComposer.Split(InternalValueSeparator))
+                        foreach (var composer in trackComposer.Split(AudioTagReader.InternalValueSeparator))
                         {
                             if (!string.IsNullOrWhiteSpace(composer))
                             {
@@ -411,11 +370,11 @@ namespace MediaBrowser.Providers.MediaInfo
 
             if (!audio.LockedFields.Contains(MetadataField.Genres))
             {
-                var genres = string.IsNullOrEmpty(trackGenre) ? [] : trackGenre.Split(InternalValueSeparator).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                var genres = string.IsNullOrEmpty(trackGenre) ? [] : trackGenre.Split(AudioTagReader.InternalValueSeparator).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
                 if (libraryOptions.UseCustomTagDelimiters)
                 {
-                    genres = genres.SelectMany(g => SplitWithCustomDelimiter(g, libraryOptions.GetCustomTagDelimiters(), libraryOptions.DelimiterWhitelist)).ToArray();
+                    genres = genres.SelectMany(g => AudioTagReader.SplitWithCustomDelimiter(g, libraryOptions.GetCustomTagDelimiters(), libraryOptions.DelimiterWhitelist)).ToArray();
                 }
 
                 genres = genres.Trimmed().Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -588,40 +547,14 @@ namespace MediaBrowser.Providers.MediaInfo
             }
         }
 
-        private List<string> SplitWithCustomDelimiter(string val, char[] tagDelimiters, string[] whitelist)
-        {
-            var items = new List<string>();
-            var temp = val;
-            foreach (var whitelistItem in whitelist)
-            {
-                if (string.IsNullOrWhiteSpace(whitelistItem))
-                {
-                    continue;
-                }
-
-                var originalTemp = temp;
-                temp = temp.Replace(whitelistItem, string.Empty, StringComparison.OrdinalIgnoreCase);
-
-                if (!string.Equals(temp, originalTemp, StringComparison.OrdinalIgnoreCase))
-                {
-                    items.Add(whitelistItem);
-                }
-            }
-
-            var items2 = temp.Split(tagDelimiters, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).DistinctNames();
-            items.AddRange(items2);
-
-            return items;
-        }
-
         // MusicBrainz IDs are multi-value tags, so we need to split them
         // However, our current provider can only have one single ID, which means we need to pick the first one
         private string? GetFirstMusicBrainzId(string tag, bool useCustomTagDelimiters, char[] tagDelimiters, string[] whitelist)
         {
-            var val = tag.Split(InternalValueSeparator).FirstOrDefault();
+            var val = tag.Split(AudioTagReader.InternalValueSeparator).FirstOrDefault();
             if (val is not null && useCustomTagDelimiters)
             {
-                val = SplitWithCustomDelimiter(val, tagDelimiters, whitelist).FirstOrDefault();
+                val = AudioTagReader.SplitWithCustomDelimiter(val, tagDelimiters, whitelist).FirstOrDefault();
             }
 
             return val;
@@ -645,14 +578,14 @@ namespace MediaBrowser.Providers.MediaInfo
 
         private bool TryGetSanitizedAdditionalFields(Track track, string field, out string? value)
         {
-            var hasField = TryGetAdditionalFieldWithFallback(track, field, out value);
+            var hasField = AudioTagReader.TryGetAdditionalField(track, field, out value);
             value = GetSanitizedStringTag(value, track.Path);
             return hasField;
         }
 
         private bool TryGetSanitizedUFIDFields(Track track, out string? owner, out string? identifier)
         {
-            var hasField = TryGetAdditionalFieldWithFallback(track, "UFID", out string? value);
+            var hasField = AudioTagReader.TryGetAdditionalField(track, "UFID", out string? value);
             if (hasField && !string.IsNullOrEmpty(value))
             {
                 string[] parts = value.Split('\0');
@@ -666,38 +599,6 @@ namespace MediaBrowser.Providers.MediaInfo
 
             owner = null;
             identifier = null;
-            return false;
-        }
-
-        // Build the explicit mka-style fallback key (e.g., ARTISTS -> track.artists, "MusicBrainz Artist Id" -> track.musicbrainz_artist_id)
-        private static string GetMkaFallbackKey(string key)
-        {
-            if (string.IsNullOrWhiteSpace(key))
-            {
-                return key;
-            }
-
-            var normalized = key.Trim().Replace(' ', '_').ToLowerInvariant();
-            return "track." + normalized;
-        }
-
-        // First try the normal key exactly; if missing, try the mka-style fallback key.
-        private bool TryGetAdditionalFieldWithFallback(Track track, string key, out string? value)
-        {
-            // Prefer the normal key (as-is, case-sensitive)
-            if (track.AdditionalFields.TryGetValue(key, out value))
-            {
-                return true;
-            }
-
-            // Fallback to mka-style: "track." + lower-case(original key)
-            var fallbackKey = GetMkaFallbackKey(key);
-            if (track.AdditionalFields.TryGetValue(fallbackKey, out value))
-            {
-                return true;
-            }
-
-            value = null;
             return false;
         }
     }

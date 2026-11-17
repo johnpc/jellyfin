@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using Jellyfin.Extensions;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -33,7 +34,11 @@ namespace Emby.Server.Implementations.Library
                 item.SetParent(parent);
             }
 
-            item.Id = libraryManager.GetNewItemId(item.Path, item.GetType());
+            // Resolvers may assign an id themselves when several items share one path, e.g. albums grouped by tags.
+            if (item.Id.IsEmpty())
+            {
+                item.Id = libraryManager.GetNewItemId(item.Path, item.GetType());
+            }
 
             item.IsLocked = item.Path.Contains("[dontfetchmeta]", StringComparison.OrdinalIgnoreCase) ||
                 item.GetParents().Any(i => i.IsLocked);
@@ -73,7 +78,11 @@ namespace Emby.Server.Implementations.Library
                 item.SetParent(args.Parent);
             }
 
-            item.Id = libraryManager.GetNewItemId(item.Path, item.GetType());
+            // Resolvers may assign an id themselves when several items share one path, e.g. albums grouped by tags.
+            if (item.Id.IsEmpty())
+            {
+                item.Id = libraryManager.GetNewItemId(item.Path, item.GetType());
+            }
 
             // Make sure the item has a name
             EnsureName(item, args.FileInfo);

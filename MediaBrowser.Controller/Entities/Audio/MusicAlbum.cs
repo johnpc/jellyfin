@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -16,6 +17,8 @@ using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Querying;
 using MetadataProvider = MediaBrowser.Model.Entities.MetadataProvider;
 
 namespace MediaBrowser.Controller.Entities.Audio
@@ -66,6 +69,43 @@ namespace MediaBrowser.Controller.Entities.Audio
         [JsonIgnore]
         public IEnumerable<Audio> Tracks => GetRecursiveChildren(i => i is Audio).Cast<Audio>();
 
+        /// <summary>
+        /// Gets a value indicating whether local metadata applies. An album grouped by tags shares its directory
+        /// with other albums, so nfo files and folder images there cannot be attributed to it.
+        /// </summary>
+        [JsonIgnore]
+        public override bool SupportsLocalMetadata => !IsInMixedFolder && base.SupportsLocalMetadata;
+
+        /// <summary>
+        /// Gets a value indicating whether this album was grouped from the tags of files in a shared directory.
+        /// </summary>
+        [JsonIgnore]
+        private bool IsGroupedByTags => IsInMixedFolder && LibraryManager.GetLibraryOptions(this).EnableTagBasedAlbumGrouping;
+
+        /// <inheritdoc />
+        public override bool IsSaveLocalMetadataEnabled()
+        {
+            return !IsInMixedFolder && base.IsSaveLocalMetadataEnabled();
+        }
+
+        /// <inheritdoc />
+        protected override FileSystemMetadata[] GetFileSystemChildren(IDirectoryService directoryService)
+        {
+            var children = base.GetFileSystemChildren(directoryService);
+
+            // The sub-directories of a shared directory belong to the parent folder, not to the albums grouped from its files.
+            return IsInMixedFolder ? children.Where(i => !i.IsDirectory).ToArray() : children;
+        }
+
+        /// <inheritdoc />
+        protected override IEnumerable<BaseItem> GetNonCachedChildren(IDirectoryService directoryService)
+        {
+            var children = base.GetNonCachedChildren(directoryService);
+
+            // An album grouped by tags only ever owns its tracks; the AudioResolver keeps the other albums' tracks out.
+            return IsInMixedFolder ? children.Where(i => i is Audio) : children;
+        }
+
         public MusicArtist GetMusicArtist(DtoOptions options)
         {
             var parents = GetParents();
@@ -89,6 +129,80 @@ namespace MediaBrowser.Controller.Entities.Audio
         protected override IEnumerable<BaseItem> GetEligibleChildrenForRecursiveChildren(User user)
         {
             return Tracks;
+        }
+
+        /// <summary>
+        /// When albums are grouped by tags, the halves of an album spread over several directories (disc folders,
+        /// several library roots) share a presentation key so that listings collapse them into one album and the
+        /// album's track queries span all of them, mirroring <c>EnableAutomaticSeriesGrouping</c>.
+        /// </summary>
+        /// <returns>The presentation key.</returns>
+        public override string CreatePresentationUniqueKey()
+        {
+            if (!IsGroupedByTags)
+            {
+                return base.CreatePresentationUniqueKey();
+            }
+
+            // Same identity order as GetUserDataKeys: MusicBrainz release group, MusicBrainz release, album artist + title.
+            var key = this.GetProviderId(MetadataProvider.MusicBrainzReleaseGroup) is { Length: > 0 } releaseGroup
+                ? "musicbrainz-releasegroup-" + releaseGroup
+                : this.GetProviderId(MetadataProvider.MusicBrainzAlbum) is { Length: > 0 } release
+                    ? "musicbrainz-release-" + release
+                    : (AlbumArtist ?? string.Empty) + "-" + Name;
+            key = "album-" + key.ToLowerInvariant();
+
+            var folders = LibraryManager.GetCollectionFolders(this)
+                .Select(i => i.Id.ToString("N", CultureInfo.InvariantCulture))
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+
+            return folders.Length == 0 ? key : key + "-" + string.Join('-', folders);
+        }
+
+        /// <inheritdoc />
+        public override IReadOnlyList<BaseItem> GetChildren(User user, bool includeLinkedChildren, out int totalItemCount, InternalItemsQuery query = null)
+        {
+            if (!IsGroupedByTags)
+            {
+                return base.GetChildren(user, includeLinkedChildren, out totalItemCount, query);
+            }
+
+            var tracks = LibraryManager.GetItemList(GetGroupedTracksQuery(new InternalItemsQuery(user)
+            {
+                DtoOptions = query?.DtoOptions ?? new DtoOptions(true)
+            }));
+            totalItemCount = tracks.Count;
+            return tracks;
+        }
+
+        /// <inheritdoc />
+        protected override QueryResult<BaseItem> GetItemsInternal(InternalItemsQuery query)
+        {
+            if (!IsGroupedByTags || SourceType == SourceType.Channel)
+            {
+                return base.GetItemsInternal(query);
+            }
+
+            return LibraryManager.GetItemsResult(GetGroupedTracksQuery(query));
+        }
+
+        private InternalItemsQuery GetGroupedTracksQuery(InternalItemsQuery query)
+        {
+            query.Parent = null;
+            query.ParentId = Guid.Empty;
+            query.AncestorWithPresentationUniqueKey = GetPresentationUniqueKey();
+            if (query.IncludeItemTypes.Length == 0)
+            {
+                query.IncludeItemTypes = [BaseItemKind.Audio];
+            }
+
+            if (query.OrderBy.Count == 0)
+            {
+                query.OrderBy = [(ItemSortBy.ParentIndexNumber, SortOrder.Ascending), (ItemSortBy.IndexNumber, SortOrder.Ascending), (ItemSortBy.SortName, SortOrder.Ascending)];
+            }
+
+            return query;
         }
 
         public override double GetDefaultPrimaryImageAspectRatio()

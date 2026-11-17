@@ -59,11 +59,22 @@ namespace MediaBrowser.Providers.MediaInfo
         /// <inheritdoc />
         public Task<DynamicImageResponse> GetImage(BaseItem item, ImageType type, CancellationToken cancellationToken)
         {
-            var imageStreams = _mediaSourceManager.GetMediaStreams(new MediaStreamQuery
+            if (item is MusicAlbum album)
             {
-                ItemId = item.Id,
-                Type = MediaStreamType.EmbeddedImage
-            });
+                // An album grouped by tags shares its directory, so its art is the embedded art of its first track that has any.
+                foreach (var track in album.Tracks.OrderBy(t => t.ParentIndexNumber ?? 0).ThenBy(t => t.IndexNumber ?? 0))
+                {
+                    var trackImageStreams = GetEmbeddedImageStreams(track);
+                    if (trackImageStreams.Count > 0)
+                    {
+                        return GetImage(track, trackImageStreams, cancellationToken);
+                    }
+                }
+
+                return Task.FromResult(new DynamicImageResponse { HasImage = false });
+            }
+
+            var imageStreams = GetEmbeddedImageStreams(item);
 
             // Can't extract if we didn't find a video stream in the file
             if (imageStreams.Count == 0)
@@ -72,6 +83,15 @@ namespace MediaBrowser.Providers.MediaInfo
             }
 
             return GetImage((Audio)item, imageStreams, cancellationToken);
+        }
+
+        private IReadOnlyList<MediaStream> GetEmbeddedImageStreams(BaseItem item)
+        {
+            return _mediaSourceManager.GetMediaStreams(new MediaStreamQuery
+            {
+                ItemId = item.Id,
+                Type = MediaStreamType.EmbeddedImage
+            });
         }
 
         private async Task<DynamicImageResponse> GetImage(Audio item, IReadOnlyList<MediaStream> imageStreams, CancellationToken cancellationToken)
@@ -150,7 +170,7 @@ namespace MediaBrowser.Providers.MediaInfo
                 return false;
             }
 
-            return item is Audio;
+            return item is Audio || item is MusicAlbum { IsInMixedFolder: true };
         }
     }
 }

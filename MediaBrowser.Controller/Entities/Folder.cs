@@ -510,8 +510,10 @@ namespace MediaBrowser.Controller.Entities
                         continue;
                     }
 
-                    // Check if an existing item occupies the same path with different type/ID
+                    // Check if an existing item occupies the same path with different type/ID.
+                    // Folders in a mixed folder (albums grouped by tags) legitimately share their path with siblings.
                     if (!string.IsNullOrEmpty(child.Path)
+                        && !(child.IsFolder && child.IsInMixedFolder)
                         && currentChildrenByPath.TryGetValue(child.Path, out var staleItem)
                         && !staleItem.Id.Equals(child.Id))
                     {

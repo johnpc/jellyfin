@@ -12,6 +12,7 @@ using Emby.Naming.Common;
 using Emby.Naming.Video;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Resolvers;
@@ -25,10 +26,14 @@ namespace Emby.Server.Implementations.Library.Resolvers.Audio
     public class AudioResolver : ItemResolver<MediaBrowser.Controller.Entities.Audio.Audio>, IMultiItemResolver
     {
         private readonly NamingOptions _namingOptions;
+        private readonly ILibraryManager _libraryManager;
+        private readonly IAudioTagReader _tagReader;
 
-        public AudioResolver(NamingOptions namingOptions)
+        public AudioResolver(NamingOptions namingOptions, ILibraryManager libraryManager, IAudioTagReader tagReader)
         {
             _namingOptions = namingOptions;
+            _libraryManager = libraryManager;
+            _tagReader = tagReader;
         }
 
         /// <summary>
@@ -131,12 +136,34 @@ namespace Emby.Server.Implementations.Library.Resolvers.Audio
                     item.IsShortcut = extension.Equals(".strm", StringComparison.OrdinalIgnoreCase);
 
                     item.IsInMixedFolder = true;
+
+                    if (args.Parent is MusicAlbum { IsInMixedFolder: true } tagAlbum && !ClaimForTagAlbum(item, tagAlbum, args))
+                    {
+                        return null;
+                    }
                 }
 
                 return item;
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// An album grouped by tags shares its directory with other albums, so it only owns the files tagged for it.
+        /// Those get an id scoped to the album, see <see cref="TagAlbumResolver.GetTrackId"/>.
+        /// </summary>
+        /// <returns><c>true</c> if the file belongs to <paramref name="tagAlbum"/>.</returns>
+        private bool ClaimForTagAlbum(MediaBrowser.Controller.Entities.Audio.Audio item, MusicAlbum tagAlbum, ItemResolveArgs args)
+        {
+            var tags = TagAlbumResolver.ReadAlbumTags(_tagReader, _namingOptions, args.Path, args.LibraryOptions);
+            if (tags is null || !TagAlbumResolver.GetAlbumId(_libraryManager, Path.GetDirectoryName(args.Path), tags).Equals(tagAlbum.Id))
+            {
+                return false;
+            }
+
+            item.Id = TagAlbumResolver.GetTrackId(_libraryManager, tagAlbum.Id, args.Path);
+            return true;
         }
 
         private AudioBook FindAudioBook(ItemResolveArgs args, bool parseName)

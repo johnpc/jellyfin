@@ -65,6 +65,13 @@ namespace MediaBrowser.Model.Configuration
 
         public bool EnableAutomaticSeriesGrouping { get; set; }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether music albums are formed from the album tags of the audio files
+        /// instead of from the directory layout. Tracks tagged for the same album share one album even when
+        /// their folder holds other albums, and tracks without an album tag stay loose.
+        /// </summary>
+        public bool EnableTagBasedAlbumGrouping { get; set; }
+
         public bool EnableEmbeddedTitles { get; set; }
 
         public bool EnableEmbeddedExtrasTitles { get; set; }
